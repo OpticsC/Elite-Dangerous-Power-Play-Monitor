@@ -1,0 +1,142 @@
+You can get the exe and just run that from https://drive.google.com/drive/folders/105aa1y6HImFj31ZvD36WhrI6ABu_ebNb?usp=sharing
+
+Or follow these steps.
+
+📦 Dependencies & Setup
+
+This repository contains two separate Python programs:
+
+EDPPM v1.3 – Powerplay Monitor
+
+EDPPM Route Planner v1.3
+
+Each program has its own dependency requirements, listed below.
+
+🔹 EDPPM v1.3 – Powerplay Monitor
+✅ Step 1 – Install Python
+
+Python 3.10 or newer (Windows)
+
+Download from: https://www.python.org/downloads/
+
+During install, check:
+
+✅ Add Python to PATH
+
+✅ tcl/tk (Tkinter)
+
+Verify:
+
+python --version
+
+✅ Step 2 – Required Python Packages
+
+Install the following packages:
+
+pip install requests beautifulsoup4 lxml
+
+What each package does
+Package	Purpose
+requests	Pulls data from EDSM and Inara
+beautifulsoup4	Parses Inara HTML pages
+lxml	Fast HTML/XML parser for BeautifulSoup
+✅ Step 3 – Built-In Modules (No Install Needed)
+
+These come with Python:
+
+tkinter – GUI
+
+json – Local data storage
+
+datetime – Time calculations
+
+time – Throttling requests
+
+re – Pattern matching
+
+os – File handling
+
+webbrowser – PayPal link
+
+✅ Step 4 – Run the Program
+python EDPPM_1_3.py
+
+⚠️ Notes
+
+Inara scraping is rate-limited – use Refresh Now sparingly
+
+If your data on the GUI shows unknown... log into inara. 
+
+Cached JSON data is used between refreshes
+
+Program will continue to function even if live data is unavailable
+
+🔹 EDPPM Route Planner
+✅ Step 1 – Install Python
+
+Same as EDPPM v1.3
+(Python 3.10+ required)
+
+✅ Step 2 – Required Python Packages
+
+Install all Route Planner dependencies:
+
+pip install requests psutil numpy scipy matplotlib
+
+What each package does
+Package	Purpose
+requests	Pulls system coordinates from EDSM
+psutil	Detects EDMarketConnector.exe
+numpy	Vector distance calculations
+scipy	TSP / route optimization
+matplotlib	3D route plotting
+✅ Step 3 – Built-In Modules (No Install Needed)
+
+tkinter
+
+json
+
+datetime
+
+time
+
+os
+
+webbrowser
+
+✅ Step 4 – Run the Program
+python ed_route_planner_1_3.py
+
+⚠️ Notes
+
+Large routes may take longer due to TSP optimization
+
+Approximate TSP is used for large system counts to prevent lag
+
+EDMarketConnector is recommended
+
+📄 Optional – requirements.txt (Combined)
+
+If users want everything for both programs:
+
+requests
+beautifulsoup4
+lxml
+psutil
+numpy
+scipy
+matplotlib
+
+
+Install with:
+
+pip install -r requirements.txt
+
+To build the exe with Icon:
+pyinstaller --onefile --windowed --icon=edppm.ico .\EDPPM_1_3.py
+pyinstaller --onefile --windowed --icon=edppm.ico .\EDPPM_RoutePlanner_1_3.py
+
+🛡️ Licensing Note
+
+This project is source-available, not open for reuse or redistribution.
+See LICENSE for details.
