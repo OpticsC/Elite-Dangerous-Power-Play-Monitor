@@ -1,0 +1,128 @@
+EDPPM Route Planner v1.3
+
+The EDPPM Route Planner is a companion tool to EDPPM (Elite Dangerous PowerPlay Monitor) designed to calculate and visualize efficient travel routes between multiple star systems in Elite Dangerous.
+
+Its primary goal is to reduce total travel distance when visiting many systems by applying Traveling Salesman Problem (TSP) techniques, while remaining responsive for large system lists.
+
+🧭 Purpose
+
+Minimize total jump distance across many systems
+
+Avoid inefficient zig-zag routing
+
+Provide a clear visual and textual route order
+
+Support PowerPlay, BGS, and logistics planning
+
+This tool is offline-first and operates on locally stored system data.
+
+🚀 Features
+
+📍 Multi-System Route Optimization
+
+Traveling Salesman Problem (TSP) solver
+
+Greedy + 2-opt refinement (fast approximate mode)
+
+Exact TSP for small system counts
+
+🧠 Performance-Aware Design
+
+Automatically switches to approximate solver for large routes
+
+Prevents UI freezing on large datasets
+
+📊 3D Route Visualization
+
+Dark Elite-style plot theme
+
+Connected path lines between systems
+
+Start/end clearly marked
+
+📋 Route Output
+
+Numbered visit order
+
+Total route distance (LY)
+
+Per-leg distances
+
+One-click copy of system names
+
+🖥️ Elite-Themed UI
+
+Black background, orange highlights
+
+Non-harsh plot colors
+
+Responsive layout
+
+📦 Data Sources
+Source	Purpose
+EDSM.net	System coordinates
+Local JSON Files	Cached system data
+Manual Imports	Pre-built system lists
+
+⚠️ The Route Planner does not pull PowerPlay or faction state data.
+It focuses only on spatial optimization.
+
+⚙️ Routing Logic Overview
+
+Small lists (<10 systems)
+→ Exact TSP solver
+
+Medium lists (10–30 systems)
+→ Greedy nearest-neighbor + 2-opt
+
+Large lists (30+ systems)
+→ Fast approximate heuristic to avoid lag
+
+This ensures the UI remains usable even with large planning jobs.
+
+⚠️ Known Limitations
+
+Routes are optimized for distance only
+
+Does not account for:
+
+Jump range
+
+Neutron boosting
+
+Permit locks
+
+Supercruise time
+
+These may be added in future versions.
+
+🔒 License
+
+No License – All Rights Reserved
+
+This project is proprietary.
+You may not copy, redistribute, modify, or reuse any part of this code without explicit permission from the author.
+
+🧠 Relationship to EDPPM
+
+This tool is designed to be used alongside EDPPM, not as a replacement.
+
+Typical workflow:
+
+Use EDPPM to identify systems needing action
+
+Export or copy system list
+
+Use EDPPM Route Planner to minimize travel distance
+
+🧩 Future Ideas (Not Implemented Yet)
+
+Jump-range aware routing
+
+Neutron highway support
+
+Fleet carrier routing mode
+
+PowerPlay-aware route weighting
+
+Direct EDPPM integration
