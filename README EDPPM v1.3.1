@@ -1,0 +1,86 @@
+# Elite Dangerous Powerplay Monitor (v1.3.1)
+
+A small desktop app that tracks Elite Dangerous PowerPlay “control strength” changes for a list of systems.
+It pulls data from **Inara** (web page scrape) and **EDSM** (API) and shows a sortable list + a detailed
+system report panel.
+
+---
+
+## What it does
+
+### Core features
+- **Monitored system list**
+  - Add a system by exact name (as Inara/EDSM expect).
+  - Remove a system from the list.
+  - Systems persist between runs.
+
+- **PowerPlay summary per system**
+  - State: `Exploited / Fortified / Stronghold / Contested / Expansion / Uncontrolled / Unknown`
+  - Control Strength: percent if detected (ex: `52.3%`) or `Unknown`
+  - “Info Updated” timestamp (if found on the Inara page)
+
+- **1 Week and 2 Week trend**
+  - Displays **1W** and **2W** change next to each system.
+  - Trend baseline is always anchored to **Thursday at 03:00 (local time)**.
+  - Baselines are stored in `baseline_history.json` so the app can compute 2-week deltas.
+
+- **System details panel**
+  - Shows the above plus EDSM system info:
+    - Controlling faction, allegiance, government, security, population
+  - Lists factions and influence (from EDSM factions endpoint)
+
+- **Sorting / highlighting**
+  - List sorts by **PowerPlay state priority** and then **strength**.
+  - Text color indicates weekly direction:
+    - Blue = up, Yellow = down, Orange = neutral/unknown
+
+- **Auto refresh**
+  - When enabled, it refreshes **once per hour at minute 20**.
+  - Status bar includes a countdown to next scheduled auto refresh.
+  - A button toggles Auto Update ON/OFF and saves to `settings.json`.
+
+- **Rate-limiting protections (Inara-friendly)**
+  - Manual Refresh button has a **cooldown** (default 120 seconds) to prevent spam.
+  - Inara requests are spaced (default minimum 10 seconds between requests).
+  - Hourly cap (default 60 Inara fetches/hour).
+  - If Inara returns “too many requests” / HTTP 429, the app pauses Inara fetches for ~1 hour
+    and falls back to cached data for that system.
+
+---
+
+## Data sources
+
+- **Inara**: HTML page scrape of the system page:
+  - Used for PowerPlay state/strength + “updated” time string (when present).
+- **EDSM**: API calls:
+  - `https://www.edsm.net/api-v1/system`
+  - `https://www.edsm.net/api-system-v1/factions`
+
+---
+
+## Files created (stored next to the EXE)
+
+When running from Python, files are saved next to the `.py`.
+When running from a PyInstaller EXE, files are saved next to the **.exe**.
+
+- `elite_systems.json` — your monitored system list
+- `previous_strengths.json` — last known strength strings (used for baseline seeding)
+- `last_system_data.json` — cached reports + last fetched data
+- `weekly_baseline.json` — legacy baseline snapshot (kept for compatibility)
+- `baseline_history.json` — history of Thursday 03:00 snapshots (used for 2-week deltas)
+- `settings.json` — stores Auto Update on/off
+
+---
+
+## Requirements (running from source)
+
+- Python 3.10+ recommended
+- Packages:
+  - `requests`
+  - `beautifulsoup4`
+  - `lxml` (optional but recommended; program falls back to html.parser if missing)
+
+Install:
+
+```bash
+pip install requests beautifulsoup4 lxml
