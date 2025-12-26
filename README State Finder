@@ -1,0 +1,132 @@
+# EDPPM State Finder (v1.3.1)
+
+A lightweight Elite Dangerous helper that scans **local EDSM nightly dump files** to find systems that match:
+- a **BGS state** (ex: Boom, War, Expansion…)
+- an optional **PowerPlay power filter** (ex: Yuri Grom)
+- an optional **ring type filter** (Icy / Metallic) *(Faction mode only)*
+- an optional **distance radius** around a “home” system
+
+It’s designed to be **fast**, **offline-friendly**, and to avoid hammering EDSM APIs (no per-system body calls).
+
+---
+
+## What it does (in plain English)
+
+### Two search modes
+1) **System Only (Fast)**
+- Uses the **PowerPlay dump** (`powerPlay.json.gz`)
+- Filters by:
+  - selected Power (or none / all)
+  - system state (from that dump)
+  - radius (optional)
+
+2) **Faction Search (Slower)**
+- Uses the **Populated systems dump** (`systemsPopulated.json.gz`)
+- Checks:
+  - if **any faction** in the system has the selected state
+  - optional ring type filter (reads rings from the *local dump only*)
+  - optional radius
+- If you pick a specific Power (ex: Yuri Grom), it **cross-references the PowerPlay dump locally** so it does *not* show systems controlled by other powers.
+
+---
+
+## Data sources (EDSM)
+
+This program uses EDSM’s nightly dumps:
+
+- **Populated systems**
+  - https://www.edsm.net/dump/systemsPopulated.json.gz
+
+- **PowerPlay systems**
+  - https://www.edsm.net/dump/powerPlay.json.gz
+
+It checks freshness using:
+- https://www.edsm.net/en/nightly-dumps *(scrape “Generated:” timestamp)*
+- Fallback: HTTP `Last-Modified` header via `HEAD` request
+
+---
+
+## How freshness works (why it’s “robust”)
+
+Windows file modified times can lie (copying files, restoring backups, etc.).
+So this app stores the **EDSM “Generated” timestamp** in a small sidecar file:
+
+- `populated_local.json.meta.json`
+- `powerplay_local.json.meta.json`
+
+On startup/scan:
+1. It fetches the newest “Generated” time from EDSM.
+2. It compares to your local `.meta.json` timestamp.
+3. If EDSM is newer → it downloads the new dump and updates both the JSON and `.meta.json`.
+
+**Important:** If you delete the `.meta.json` files, the app will force-refresh once (by design).
+
+---
+
+## What files get created
+
+In the same folder as the script / exe:
+
+- `populated_local.json`  
+- `populated_local.json.meta.json`  
+- `powerplay_local.json`  
+- `powerplay_local.json.meta.json`  
+- `config.json`
+
+`config.json` stores your last-used UI selections (home system, radius, power, state, mode, etc).
+
+---
+
+## UI overview
+
+### Inputs
+- **Home System**: Used for radius searches (optional)
+- **Radius**: `0` = search everything
+- **Power Filter**
+  - `All (Any / Uncontrolled)` → no power filter
+  - `None (Uncontrolled)` → only systems with no power
+  - Any named power → only that power’s systems
+- **State**: target BGS state
+- **Ring Filter (Faction mode only)**
+  - None / Icy Rings / Metallic Rings
+- **Mode**
+  - System Only (Fast)
+  - Faction Search (Slower)
+
+### Buttons
+- **START SCAN**: Downloads dumps if needed, then scans
+- **STOP**: Stops download/scan safely
+- **Donate via PayPal**: opens your PayPal link
+- **Open Data Folder**: opens the current working folder
+
+### Results
+- Shows matching systems + distance (if radius enabled)
+- **Details** opens a popup with system/faction/ring details
+- **Copy** copies the system name to clipboard
+
+---
+
+## Network usage (polite + minimal)
+
+This app only makes a few requests per run:
+- 1 request to nightly-dumps page (freshness check)
+- sometimes 1 `HEAD` request (fallback freshness check)
+- 0–2 dump downloads (only if EDSM is newer or local is missing)
+- 1 small API request to fetch **home system coordinates** (only if radius > 0)
+
+✅ It does **NOT** call `/api-system-v1/bodies` per system.  
+✅ It does **NOT** spam EDSM while scanning.
+
+---
+
+## Install / Run (Python)
+
+### 1) Requirements
+- Python **3.10+** recommended
+- Packages:
+  - `requests`
+  - `beautifulsoup4`
+
+### 2) Install dependencies
+```bash
+pip install requests beautifulsoup4
