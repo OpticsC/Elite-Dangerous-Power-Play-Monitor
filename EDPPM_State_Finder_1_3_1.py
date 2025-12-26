@@ -66,6 +66,15 @@ POWERS = [
     "Archon Delaine", "Zemina Torval"
 ]
 
+RING_CHOICES = [
+    "All (Any Rings)",     # no filter
+    "None (No Rings)",     # must have zero rings
+    "Icy",
+    "Rocky",
+    "Metal Rich",
+    "Metallic"
+]
+
 # ===================== Helpers =====================
 def load_json(file_name):
     if os.path.exists(file_name):
@@ -92,6 +101,7 @@ def distance_between(coord1, coord2):
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 def get_system_coords(system_name):
+    # One small request for home coords only.
     url = f"{EDSM_BASE}/api-v1/systems"
     params = {"systemName": system_name, "showCoordinates": 1}
     try:
@@ -111,9 +121,13 @@ def fmt_dt(dt):
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 # ===================== Robust "Generated" timestamp =====================
-_DATE_FMT = "%b %d, %Y, %I:%M:%S %p"
+_DATE_FMT = "%b %d, %Y, %I:%M:%S %p"  # e.g. Dec 25, 2025, 4:33:48 AM
 
 def _try_parse_generated(s):
+    """
+    Parse EDSM nightly-dumps 'Generated:' string. Returns aware UTC dt or None.
+    Page does not show timezone; we treat it as UTC for consistent comparisons.
+    """
     s = (s or "").strip()
     if not s:
         return None
@@ -123,31 +137,47 @@ def _try_parse_generated(s):
         return None
 
 def fetch_edsm_generated_time(url):
+    """
+    Robustly gets the dump's 'Generated' time.
+    Strategy:
+      1) Scrape nightly-dumps page by locating the dump URL and reading the next 'Generated:' line.
+      2) Fallback: HTTP HEAD Last-Modified for the dump URL.
+    Returns: (dt_utc or None, source_string)
+    """
     filename = url.split("/")[-1]
 
-    # 1) Scrape nightly-dumps
+    # --- 1) scrape nightly-dumps ---
     try:
         resp = SESSION.get(NIGHTLY_DUMPS, timeout=25)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
+
         txt = soup.get_text("\n", strip=True)
 
-        patterns = [re.escape(url), re.escape(filename)]
+        patterns = [
+            re.escape(url),
+            re.escape(filename),
+        ]
+
         for pat in patterns:
             m = re.search(pat, txt, flags=re.IGNORECASE)
             if not m:
                 continue
-            window = txt[m.start(): m.start() + 600]
-            gm = re.search(r"Generated:\s*([A-Za-z]{3}\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M)", window)
+            window = txt[m.start(): m.start() + 800]
+            gm = re.search(
+                r"Generated:\s*([A-Za-z]{3}\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M)",
+                window
+            )
             if gm:
                 dt = _try_parse_generated(gm.group(1))
                 if dt:
                     return dt, "nightly-dumps"
 
+        # Structured scan
         lines = txt.splitlines()
         for i, line in enumerate(lines):
             if url.lower() in line.lower() or filename.lower() in line.lower():
-                for j in range(i, min(i + 10, len(lines))):
+                for j in range(i, min(i + 12, len(lines))):
                     if lines[j].strip().lower().startswith("generated:"):
                         cand = lines[j].split(":", 1)[-1].strip()
                         dt = _try_parse_generated(cand)
@@ -156,7 +186,7 @@ def fetch_edsm_generated_time(url):
     except Exception:
         pass
 
-    # 2) Fallback: HEAD Last-Modified
+    # --- 2) fallback: HEAD Last-Modified ---
     try:
         h = SESSION.head(url, timeout=20, allow_redirects=True)
         if 200 <= h.status_code < 400:
@@ -241,6 +271,7 @@ def download_with_progress(url, timeout, status_cb, stop_event=None, chunk_size=
     for chunk in resp.iter_content(chunk_size=chunk_size):
         if stop_event and stop_event.is_set():
             raise RuntimeError("Download stopped by user")
+
         if not chunk:
             continue
 
@@ -266,24 +297,40 @@ def download_with_progress(url, timeout, status_cb, stop_event=None, chunk_size=
     return b"".join(chunks)
 
 # ===================== Ring filter (LOCAL) =====================
-def system_has_ring_type_local(system, ring_type):
+def system_ring_matches_local(system, ring_choice):
     """
-    ring_type: one of {"icy","rocky","metal rich","metallic"}
-    Matches against ring["type"] primarily, with fallback to ring name.
+    ring_choice:
+      - "All (Any Rings)" -> True for all systems (no filter)
+      - "None (No Rings)" -> only systems with zero rings
+      - "Icy" / "Rocky" / "Metal Rich" / "Metallic" -> any ring.type match
     """
+    ring_choice = (ring_choice or "").strip()
+
+    if ring_choice == "" or ring_choice == "All (Any Rings)":
+        return True
+
     bodies = system.get("bodies") or []
-    target = (ring_type or "").strip().lower()
+    total_rings = 0
+    target = ring_choice.lower()
 
     for body in bodies:
         rings = (body or {}).get("rings") or []
+        if rings:
+            total_rings += len(rings)
+
         for ring in rings:
             rtype = (ring.get("type") or "").strip().lower()
             rname = (ring.get("name") or "").strip().lower()
 
+            # Primary match: type field
             if rtype == target:
                 return True
+            # Fallback: occasionally helpful
             if target and target in rname:
                 return True
+
+    if ring_choice == "None (No Rings)":
+        return total_rings == 0
 
     return False
 
@@ -318,6 +365,7 @@ class EDPPMStateFinderApp:
         self._load_config_into_ui()
         self._update_local_data_status()
 
+    # ---------- Style ----------
     def _setup_style(self):
         style = ttk.Style()
         style.theme_use("clam")
@@ -340,13 +388,14 @@ class EDPPMStateFinderApp:
         style.map("Primary.TButton", background=[("active", HIGHLIGHT_ORANGE)])
 
         style.configure("Danger.TButton", background="#DD4444", foreground="white", padding=10, font=(FONT_NAME, 11, "bold"))
-        style.map("Danger.TButton", background=[("active", "#FF6666")])
+        style.map("Danger.TButton", background=[("active", "#FF6666")])  # ✅ fixed
 
         style.configure("Thin.TButton", background="#111111", foreground=TEXT_COLOR, padding=6, font=(FONT_NAME, 9, "bold"))
         style.map("Thin.TButton", background=[("active", "#1A1A1A")])
 
         style.configure("Horizontal.TProgressbar", background=PRIMARY_ORANGE, troughcolor="#101010", thickness=16)
 
+    # ---------- Layout ----------
     def _build_layout(self):
         header = ttk.Frame(self.root)
         header.pack(fill="x", padx=12, pady=(10, 8))
@@ -403,12 +452,8 @@ class EDPPMStateFinderApp:
         self.state_combo = ttk.Combobox(parent, values=BGS_STATES, state="readonly")
         add_row("State", self.state_combo)
 
-        self.ring_filter = ttk.Combobox(
-            parent,
-            values=["None", "Icy", "Rocky", "Metal Rich", "Metallic"],
-            state="readonly"
-        )
-        add_row("Ring Type (Faction mode)", self.ring_filter)
+        self.ring_filter = ttk.Combobox(parent, values=RING_CHOICES, state="readonly")
+        add_row("Ring Filter (Faction mode)", self.ring_filter)
 
         ttk.Label(parent, text="MODE", style="Section.TLabel").grid(row=r, column=0, columnspan=2, sticky="w", padx=12, pady=(14, 8))
         r += 1
@@ -485,6 +530,7 @@ class EDPPMStateFinderApp:
         self.result_canvas.create_window((0, 0), window=self.result_inner, anchor="nw")
         self.result_inner.bind("<Configure>", lambda e: self.result_canvas.configure(scrollregion=self.result_canvas.bbox("all")))
 
+        # Only bind wheel while mouse is over results area (prevents popup scroll from moving main list)
         def _bind_results_wheel(_event=None):
             self.root.bind_all("<MouseWheel>", self._on_mousewheel)
             self.root.bind_all("<Button-4>", self._on_mousewheel_linux)
@@ -515,6 +561,7 @@ class EDPPMStateFinderApp:
         except Exception:
             pass
 
+    # ---------- UI helpers ----------
     def open_data_folder(self):
         try:
             folder = os.path.abspath(os.getcwd())
@@ -556,13 +603,16 @@ class EDPPMStateFinderApp:
         self.radius_entry.insert(0, str(cfg.get("radius", DEFAULT_RADIUS)))
         self.power_combo.set(cfg.get("power", "All (Any / Uncontrolled)"))
         self.state_combo.set(cfg.get("state", "Boom"))
-        self.ring_filter.set(cfg.get("ring_filter", "None"))
+        self.ring_filter.set(cfg.get("ring_filter", "All (Any Rings)"))
         self.mode_var.set(cfg.get("mode", "system"))
 
+        # Validate (handles upgrades)
         if self.state_combo.get() not in BGS_STATES:
             self.state_combo.set("Boom")
-        if self.ring_filter.get() not in ["None", "Icy", "Rocky", "Metal Rich", "Metallic"]:
-            self.ring_filter.set("None")
+        if self.ring_filter.get() not in RING_CHOICES:
+            self.ring_filter.set("All (Any Rings)")
+        if self.power_combo.get() not in POWERS:
+            self.power_combo.set("All (Any / Uncontrolled)")
 
     def _save_config_from_ui(self):
         cfg = {
@@ -579,6 +629,7 @@ class EDPPMStateFinderApp:
         except Exception:
             pass
 
+    # ---------- Actions ----------
     def start_scan(self):
         self.results.clear()
         for w in self.result_inner.winfo_children():
@@ -606,22 +657,29 @@ class EDPPMStateFinderApp:
             self._update_local_data_status()
         self.root.after(0, _do)
 
+    # ---------- Dumps ----------
     def load_or_download_dump(self, url, json_file):
+        # 1) Determine EDSM "Generated" time robustly
         self.set_status("Checking nightly-dumps freshness…")
         edsm_gen, src = fetch_edsm_generated_time(url)
         local_gen = load_local_generated(json_file)
 
+        # Display BOTH and the source for debugging
         self.set_status(f"Age check — EDSM: {fmt_dt(edsm_gen)} ({src}) | Local: {fmt_dt(local_gen)}")
 
+        # 2) Load local if possible
         data = load_json(json_file)
 
+        # If local JSON unreadable => always download
         if not data:
             self.set_status("Local JSON missing/corrupt — downloading…")
         else:
+            # If we cannot get EDSM time at all, we cannot safely decide to refresh
             if edsm_gen is None:
                 self.set_status("Warning: Could not determine EDSM freshness (scrape/HEAD failed) — using local JSON")
                 return data
 
+            # If we have no local_gen stored, FORCE one refresh if EDSM time exists
             if local_gen is None:
                 self.set_status("No local 'Generated' timestamp saved — forcing refresh to sync with EDSM…")
             else:
@@ -630,6 +688,7 @@ class EDPPMStateFinderApp:
                     return data
                 self.set_status("Newer JSON on EDSM — downloading latest…")
 
+        # 3) Download
         gz_bytes = download_with_progress(url, timeout=300, status_cb=self.set_status, stop_event=self.stop_event)
 
         self.set_status("Decompressing…")
@@ -641,6 +700,7 @@ class EDPPMStateFinderApp:
 
         save_json(data, json_file)
 
+        # 4) Save EDSM timestamp to meta
         if edsm_gen:
             save_local_generated(json_file, edsm_gen, source=src)
         else:
@@ -649,6 +709,7 @@ class EDPPMStateFinderApp:
         self.set_status("Download complete — local JSON updated")
         return data
 
+    # ---------- Scan ----------
     def scan_loop(self):
         try:
             home_system = self.home_entry.get().strip()
@@ -664,10 +725,9 @@ class EDPPMStateFinderApp:
             any_state = (state_choice == "All (Any State)")
 
             selected_power = self.power_combo.get()
-
             ring_choice = (self.ring_filter.get() or "").strip()
-            ring_type = None if ring_choice == "None" else ring_choice.lower()
 
+            # Load dumps
             if mode == "system":
                 data = self.load_or_download_dump(POWERPLAY_URL, POWER_JSON_FILE)
                 power_index = None
@@ -682,6 +742,7 @@ class EDPPMStateFinderApp:
                 self.set_status("Unexpected JSON format (not a list).")
                 return
 
+            # Home coords
             home_coords = None
             if home_system and radius > 0:
                 self.set_status(f"Fetching coordinates for {home_system}…")
@@ -690,6 +751,7 @@ class EDPPMStateFinderApp:
                     self.set_status("Home system coords not found — searching all.")
                     radius = 0.0
 
+            # Scan
             self.set_status("Scanning…")
             total = len(data)
             processed = 0
@@ -711,6 +773,7 @@ class EDPPMStateFinderApp:
                     power = (sys.get("power") or "").strip()
                     state = (sys.get("state") or "").strip().lower()
 
+                    # Power filter (system mode uses powerplay dump directly)
                     if selected_power == "None (Uncontrolled)":
                         if power:
                             continue
@@ -718,10 +781,12 @@ class EDPPMStateFinderApp:
                         if power != selected_power:
                             continue
 
+                    # State filter
                     if (not any_state) and (state != target_state):
                         continue
 
                 else:
+                    # Cross reference powerplay (local) if filtering by power
                     if selected_power != "All (Any / Uncontrolled)":
                         sys_power = (power_index.get(name) or "").strip() if power_index else ""
                         if selected_power == "None (Uncontrolled)":
@@ -731,14 +796,15 @@ class EDPPMStateFinderApp:
                             if sys_power != selected_power:
                                 continue
 
+                    # Faction state filter
                     if not any_state:
                         factions = sys.get("factions") or []
                         if not any((((f or {}).get("state") or "").strip().lower()) == target_state for f in factions):
                             continue
 
-                    if ring_type:
-                        if not system_has_ring_type_local(sys, ring_type):
-                            continue
+                    # Ring filter (Faction mode only)
+                    if not system_ring_matches_local(sys, ring_choice):
+                        continue
 
                 coords = sys.get("coords")
                 dist = None
@@ -760,6 +826,7 @@ class EDPPMStateFinderApp:
         finally:
             self.cleanup()
 
+    # ---------- Results ----------
     def show_results(self):
         for w in self.result_inner.winfo_children():
             w.destroy()
@@ -804,6 +871,7 @@ class EDPPMStateFinderApp:
         except Exception:
             self.set_status("Clipboard copy failed.")
 
+    # ---------- Details popup ----------
     def show_system_details(self, system):
         win = tk.Toplevel(self.root)
         win.title(f"System: {system.get('name','Unknown')}")
@@ -815,8 +883,10 @@ class EDPPMStateFinderApp:
         scroll = ttk.Scrollbar(frame, orient="vertical")
         scroll.pack(side="right", fill="y")
 
-        text = tk.Text(frame, bg="#000000", fg=TEXT_COLOR, font=(FONT_NAME, 10),
-                       width=110, height=35, yscrollcommand=scroll.set)
+        text = tk.Text(
+            frame, bg="#000000", fg=TEXT_COLOR, font=(FONT_NAME, 10),
+            width=110, height=35, yscrollcommand=scroll.set
+        )
         text.pack(side="left", fill="both", expand=True)
         scroll.config(command=text.yview)
 
@@ -838,6 +908,12 @@ class EDPPMStateFinderApp:
         insert_line("Security", system.get("security", ""))
         insert_line("Population", system.get("population", ""))
 
+        controlling = system.get("controllingFaction")
+        if controlling:
+            text.insert(tk.END, "\nControlling Faction:\n")
+            for k, v in controlling.items():
+                text.insert(tk.END, f"  {k}: {v}\n")
+
         factions = system.get("factions", [])
         if factions:
             text.insert(tk.END, "\nFactions:\n")
@@ -856,10 +932,10 @@ class EDPPMStateFinderApp:
             for r in rings:
                 text.insert(tk.END, f"      Ring: {r.get('name','')} | Type: {r.get('type','')}\n")
                 ring_count += 1
-                if ring_count >= 80:
+                if ring_count >= 120:
                     text.insert(tk.END, "      (…truncated…)\n")
                     break
-            if ring_count >= 80:
+            if ring_count >= 120:
                 break
         if ring_count == 0:
             text.insert(tk.END, "  (No rings found in local dump for this system)\n")
@@ -869,7 +945,6 @@ class EDPPMStateFinderApp:
             insert_line("\nSystem Data Last Updated", date)
 
         text.config(state=tk.DISABLED)
-
 
 # ===================== Main ========================
 if __name__ == "__main__":
